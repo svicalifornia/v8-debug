@@ -8,6 +8,7 @@ var inherits = require('util').inherits;
 var extend = require('util')._extend;
 
 var NODE_NEXT = require('./tools/NODE_NEXT');
+var nextTmpEventId = 1;
 
 // Don't cache debugger module
 delete require.cache[module.id];
@@ -180,8 +181,7 @@ V8Debug.prototype.registerAsyncCommand = function(name, func) {
 };
 
 V8Debug.prototype.command =
-V8Debug.prototype.sendCommand =
-V8Debug.prototype.emitEvent = sendCommand;
+V8Debug.prototype.sendCommand = sendCommand;
 function sendCommand(name, attributes, userdata) {
   var message = {
     seq: 0,
@@ -192,17 +192,23 @@ function sendCommand(name, attributes, userdata) {
   binding.sendCommand(JSON.stringify(message));
 };
 
+V8Debug.prototype.emitEvent = emitEvent;
+function emitEvent(name, attributes, userdata) {
+  var handlerName = 'tmpEvent-' + nextTmpEventId++;
+  this.registerCommand(handlerName, function(request, response) {
+    this.commandToEvent(request, response);
+    response.event = name;
+    this.unregisterCommand(handlerName);
+  }.bind(this));
+  this.sendCommand(handlerName, attributes, userdata);
+}
+
 V8Debug.prototype.commandToEvent = function(request, response) {
   response.type = 'event';
   response.event = response.command;
   response.body = request.arguments || {};
   delete response.command;
   delete response.request_seq;
-};
-
-V8Debug.prototype.registerEvent = function(name) {
-  var proto = this._DebugCommandProcessor;
-  proto.extendedProcessDebugJSONRequestHandles_[name] = this.commandToEvent;
 };
 
 V8Debug.prototype.get =
@@ -241,8 +247,6 @@ V8Debug.prototype.enableWebkitProtocol = function() {
   }
 
   if (this._webkitProtocolEnabled) return;
-
-  var nextTmpEventId = 1;
 
   var DebuggerScriptSource,
       DebuggerScript,
